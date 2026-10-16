@@ -1,0 +1,105 @@
+name: azure
+on:
+  repository_dispatch:
+    types: [model-candidate-ready]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Plan is read-only; dashboard moves public HTTPS to port 443"
+        type: choice
+        options: [plan, deploy, verify, dashboard, release, sleep, wake, destroy, kill]
+        default: plan
+        required: true
+      version:
+        description: "MLflow candidate version (release only)"
+        type: string
+        default: ""
+      confirmation:
+        description: "For deploy/wake/destroy/kill, type the action in uppercase to confirm"
+        type: string
+        default: ""
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+concurrency:
+  group: azure-platform
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'kill' }}
+jobs:
+  platform:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: azure
+    timeout-minutes: 90
+    env:
+      ACTION: ${{ github.event_name == 'repository_dispatch' && 'release' || inputs.action }}
+      VERSION: ${{ github.event.client_payload.version || inputs.version }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      AZURE_ALLOWED_CIDR: ${{ vars.AZURE_ALLOWED_CIDR }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_NODE_RESOURCE_GROUP: ${{ vars.AZURE_NODE_RESOURCE_GROUP }}
+      TF_STATE_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+      TF_STATE_ACCOUNT: ${{ vars.TF_STATE_ACCOUNT }}
+      TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_project: ${{ vars.AZURE_PROJECT || 'mlp' }}
+      TF_VAR_environment: ${{ vars.AZURE_ENVIRONMENT || 'test' }}
+      TF_VAR_location: ${{ vars.AZURE_LOCATION || 'indiasouthcentral' }}
+      TF_VAR_kubernetes_version: ${{ vars.AZURE_KUBERNETES_VERSION }}
+      TF_VAR_vm_size: ${{ vars.AZURE_VM_SIZE || 'Standard_D4as_v4' }}
+      TF_VAR_budget_email: ${{ vars.AZURE_BUDGET_EMAIL }}
+      TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check configuration and explicit confirmation
+        run: make azure-check
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+          python-version: "3.11.17"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: "v3.22.0"
+      - name: Install verified GitHub and Kubernetes clients
+        run: |
+          make tools TOOLSET="gh kubectl"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install locked application dependencies
+        if: inputs.action == 'deploy'
+        run: uv sync --frozen
+      - name: Require successful CI for this exact commit
+        if: inputs.action == 'deploy' || inputs.action == 'dashboard'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=completed" --jq '.workflow_runs[0].conclusion')"
+          test "$conclusion" = success || { echo "CI must succeed for $GITHUB_SHA before deployment" >&2; exit 1; }
+      - name: Run the selected cloud operation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make azure
+      - name: Remove billable resources if startup fails
+        if: failure() && inputs.action == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if test -e /tmp/mlp-startup-started; then
+            make azure ACTION=kill CONFIRMATION=KILL
+          fi

@@ -1,0 +1,97 @@
+{{- $fullName := include "mlflow.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "mlflow.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mlflow.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mlflow.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mlflow
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["mlflow"]
+          args:
+            - server
+            - --backend-store-uri
+            - "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Values.backend.host }}:{{ .Values.backend.port }}/{{ .Values.backend.database }}"
+            - --artifacts-destination
+            - "s3://{{ .Values.artifacts.bucket }}"
+            - --serve-artifacts
+            - --host
+            - 0.0.0.0
+            - --allowed-hosts
+            - "*"
+            - --port
+            - "5000"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.backend.secretName }}, key: {{ .Values.backend.secretKeys.user }}}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.backend.secretName }}, key: {{ .Values.backend.secretKeys.password }}}
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: {{ .Values.artifacts.endpoint | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.artifacts.secretName }}, key: {{ .Values.artifacts.secretKeys.accessKey }}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.artifacts.secretName }}, key: {{ .Values.artifacts.secretKeys.secretKey }}}
+          ports:
+            - {name: http, containerPort: 5000}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            httpGet: {path: /, port: http}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "mlflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "mlflow.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      nodePort: {{ .Values.service.nodePort }}

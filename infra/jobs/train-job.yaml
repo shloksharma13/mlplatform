@@ -1,0 +1,67 @@
+# Train via Feast point-in-time features and register in MLflow (P6.4).
+# Run via `make train-mlflow`, which substitutes __GIT_SHA__/__TRIGGER__ and
+# deletes any previous Job first so the manifest stays re-runnable. Labels are
+# pulled from the MinIO feast-offline bucket (the image carries no data).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: train-mlflow
+  namespace: data
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: train-mlflow
+          image: localhost:5001/training:dev
+          # Always: the local registry tag is reused across builds.
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: 1900m, memory: 3Gi}
+          imagePullPolicy: Always
+          env:
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: postgres-auth, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-auth, key: postgres-password}}
+            - {name: POSTGRES_HOST, value: postgres.data.svc}
+            - {name: POSTGRES_PORT, value: "5432"}
+            - {name: FEAST_POSTGRES_DB, value: feast}
+            - {name: REDIS_HOST, value: redis.data.svc}
+            - {name: REDIS_PORT, value: "6379"}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: minio-auth, key: root-user}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: minio-auth, key: root-password}}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+            - {name: FEAST_S3_ENDPOINT_URL, value: http://minio.data.svc:9000}
+            - {name: MLFLOW_TRACKING_URI, value: http://mlflow.data.svc:5000}
+            - {name: TRIGGER, value: __TRIGGER__}
+            - {name: GIT_SHA, value: __GIT_SHA__}
+            - {name: MPLCONFIGDIR, value: /tmp}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              cd /app
+              python -m feature_repo.render_config
+              python - <<'EOF'
+              import os
+              import pyarrow.fs
+              import pyarrow.parquet
+              filesystem = pyarrow.fs.S3FileSystem(
+                  endpoint_override=os.environ["FEAST_S3_ENDPOINT_URL"],
+                  region="us-east-1",
+              )
+              os.makedirs("/tmp/ml-data", exist_ok=True)
+              pyarrow.parquet.write_table(
+                  pyarrow.parquet.read_table(
+                      "feast-offline/labels.parquet", filesystem=filesystem
+                  ),
+                  "/tmp/ml-data/labels.parquet",
+              )
+              print("downloaded labels.parquet")
+              EOF
+              python -m ml.train --mode mlflow --data-dir /tmp/ml-data __SHUFFLE_FLAG__

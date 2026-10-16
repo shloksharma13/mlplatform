@@ -1,0 +1,16 @@
+# Rendered from this template by feature_repo/render_config.py (see P6.2).
+# The rendered feature_store.yaml contains the Postgres password, so it is
+# gitignored and dockerignored: only this creds-free template is versioned.
+# In-cluster the K8s Job feeds the values from the postgres-auth Secret.
+project: mlplatform
+provider: local
+registry:
+  registry_type: sql
+  path: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${FEAST_POSTGRES_DB}
+  cache_ttl_seconds: 60
+online_store:
+  type: redis
+  connection_string: ${REDIS_HOST}:${REDIS_PORT}
+offline_store:
+  type: file
+entity_key_serialization_version: 3

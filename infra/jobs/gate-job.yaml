@@ -1,0 +1,37 @@
+# Score one candidate MLflow model version through the release gate (P7.1).
+# Model bytes download through cluster-internal presigned URLs, so scoring
+# runs in-cluster (training image). Run via `make gate-candidate VERSION=N`,
+# which substitutes __CANDIDATE__ and deletes any previous Job first.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gate-candidate
+  namespace: data
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: localhost:5001/training:dev
+          # Always: the local registry tag is reused across builds.
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+          imagePullPolicy: Always
+          env:
+            - {name: MLFLOW_TRACKING_URI, value: http://mlflow.data.svc:5000}
+            - {name: CANDIDATE_VERSION, value: "__CANDIDATE__"}
+            # gate.py imports the ml package; script-dir execution does not
+            # put /app on sys.path the way `python -m` does.
+            - {name: PYTHONPATH, value: /app}
+            - {name: MPLCONFIGDIR, value: /tmp}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              cd /app
+              python scripts/gate.py --candidate "$CANDIDATE_VERSION" \
+                --out /tmp/gate_report.json

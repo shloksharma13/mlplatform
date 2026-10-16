@@ -1,0 +1,15 @@
+image:
+  repository: redis
+  tag: 7.2.16-alpine3.21
+  digest: sha256:29e8589c3f9ba699b5f7aa4b3c7733c58852a3626439e619aa0ee78de08c6ca0
+  pullPolicy: IfNotPresent
+
+nodePort: 30379
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

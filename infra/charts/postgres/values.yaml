@@ -1,0 +1,32 @@
+image:
+  repository: postgres
+  tag: 16.15-bookworm
+  digest: sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
+  pullPolicy: IfNotPresent
+
+auth:
+  # When false, credentials come from the existingSecret (managed by Terraform).
+  createSecret: true
+  existingSecret: ""
+  secretKeys:
+    password: postgres-password
+  username: mlp
+  password: changeme-local-only
+  database: mlp
+
+extraDatabases:
+  - mlflow
+  - feast
+
+storage:
+  size: 5Gi
+
+nodePort: 30432
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

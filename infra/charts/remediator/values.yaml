@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: localhost:5001/remediator
+  tag: dev
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+# Namespace where the model-api workloads live (RBAC target).
+targetNamespace: serving
+
+grafana:
+  url: http://kube-prometheus-stack-grafana.observability.svc:80
+  secretName: grafana-admin
+  secretKeys:
+    user: admin-user
+    password: admin-password
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

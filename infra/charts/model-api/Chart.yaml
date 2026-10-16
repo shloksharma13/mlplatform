@@ -1,0 +1,6 @@
+apiVersion: v2
+name: model-api
+description: Loan-default prediction API for the local kind cluster.
+type: application
+version: 0.1.0
+appVersion: file-v1

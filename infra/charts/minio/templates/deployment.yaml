@@ -1,0 +1,96 @@
+{{- $fullName := include "minio.fullname" . -}}
+{{- $secretName := .Values.auth.existingSecret | default $fullName -}}
+{{- $accessKey := .Values.auth.secretKeys.accessKey -}}
+{{- $secretKey := .Values.auth.secretKeys.secretKey -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "minio.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: api, port: 9000, targetPort: api}
+    - {name: console, port: 9001, targetPort: console}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}-external
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "minio.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: api, port: 9000, targetPort: api, nodePort: {{ .Values.service.apiNodePort }}}
+    - {name: console, port: 9001, targetPort: console, nodePort: {{ .Values.service.consoleNodePort }}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullName }}-data
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "minio.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "minio.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - {name: api, containerPort: 9000}
+            - {name: console, containerPort: 9001}
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: {{ $accessKey }}}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: {{ $secretKey }}}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $fullName }}-data

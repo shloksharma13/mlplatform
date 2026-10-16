@@ -1,0 +1,80 @@
+{{- $fullName := include "postgres.fullname" . -}}
+{{- $secretName := .Values.auth.existingSecret | default $fullName -}}
+{{- $secretKey := .Values.auth.secretKeys.password -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-init
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "postgres.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: PGHOST
+              value: {{ $fullName }}
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: username}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: {{ $secretKey }}}
+            - name: PGDATABASE
+              value: {{ .Values.auth.database | quote }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -Eeuo pipefail
+              # Cold starts pull ~160MB of images; wait for the server instead
+              # of burning the Job's backoff budget.
+              for i in $(seq 1 120); do
+                if pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+              for db in {{ .Values.auth.database }} {{ join " " .Values.extraDatabases }}; do
+                psql -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 \
+                  || createdb "$db"
+              done
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE TABLE IF NOT EXISTS prediction_log (
+                id bigserial PRIMARY KEY,
+                ts timestamptz NOT NULL DEFAULT now(),
+                request_id text NOT NULL,
+                model_version text NOT NULL,
+                customer_id integer NOT NULL,
+                features jsonb NOT NULL,
+                score real NOT NULL
+              );
+              CREATE INDEX IF NOT EXISTS prediction_log_model_ts
+                ON prediction_log (model_version, ts);
+              CREATE TABLE IF NOT EXISTS drift_state (
+                feature text PRIMARY KEY,
+                psi double precision NOT NULL,
+                threshold double precision NOT NULL,
+                updated_at timestamptz NOT NULL DEFAULT now()
+              );
+              CREATE TABLE IF NOT EXISTS labels_log (
+                customer_id integer NOT NULL,
+                label integer NOT NULL,
+                observed_at timestamptz NOT NULL DEFAULT now()
+              );
+              SQL
+              echo "postgres init complete"

@@ -1,0 +1,66 @@
+{{- $fullName := include "minio.fullname" . -}}
+{{- $secretName := .Values.auth.existingSecret | default $fullName -}}
+{{- $accessKey := .Values.auth.secretKeys.accessKey -}}
+{{- $secretKey := .Values.auth.secretKeys.secretKey -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-buckets
+  labels:
+    {{- include "minio.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "minio.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: buckets
+          image: "{{ .Values.clientImage.repository }}:{{ .Values.clientImage.tag }}@{{ .Values.clientImage.digest }}"
+          imagePullPolicy: {{ .Values.clientImage.pullPolicy }}
+          env:
+            - name: MINIO_USER
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: {{ $accessKey }}}
+            - name: MINIO_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ $secretName }}, key: {{ $secretKey }}}
+            # mc persists aliases under $HOME: give it a writable directory
+            # (the root filesystem is read-only, see below).
+            - name: HOME
+              value: /home/mc
+          volumeMounts:
+            - {name: home, mountPath: /home/mc}
+          # NOTE: /bin/sh here is dash (no pipefail); bash is required.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              # Cold starts pull ~400MB of images; wait for the server instead
+              # of burning the Job's backoff budget.
+              for i in $(seq 1 120); do
+                if mc alias set minio "http://{{ $fullName }}:9000" "$MINIO_USER" "$MINIO_PASSWORD" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+              mc alias set minio "http://{{ $fullName }}:9000" "$MINIO_USER" "$MINIO_PASSWORD"
+              {{ range .Values.buckets -}}
+              mc mb --ignore-existing minio/{{ . }};
+              {{ end -}}
+              mc ls minio/
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: home
+          emptyDir: {}

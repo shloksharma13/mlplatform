@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mlplatform"
+version = "0.1.0"
+description = "Credit-risk MLOps demo with Azure deployment through GitHub Actions."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "fastapi==0.142.2",
+  "httpx==0.28.1",
+  "joblib==1.6.0",
+  "kubernetes==36.0.3",
+  "mlflow-skinny==3.16.1",
+  "mmh3==5.3.1",
+  "numpy==2.4.6",
+  "pandas==3.0.6",
+  "prometheus-client==0.26.0",
+  "psycopg[binary]==3.3.6",
+  "pyarrow==25.0.1",
+  "pydantic==2.13.5",
+  "pydantic-settings==2.15.0",
+  "redis==8.1.0",
+  "scikit-learn==1.9.1",
+  "scipy==1.17.1",
+  "sqlalchemy==2.1.2",
+  "uvicorn==0.54.0",
+  "xlrd==2.0.1",
+]
+
+[dependency-groups]
+dev = [
+  "pre-commit==4.6.2",
+  "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.10",
+]
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "core/mlp_common",
+  "core/ml",
+  "core/model_api",
+  "core/drift_monitor",
+  "core/retrain",
+  "core/remediator",
+]
+
+[tool.hatch.build.targets.wheel.sources]
+"core" = ""
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = [".venv", "artifacts/**", "data/**", "docs/SPEC.md", "mlruns/**"]
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+pythonpath = [".", "core", "scripts"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["mlp_common", "model_api"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]

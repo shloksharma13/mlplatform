@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: localhost:5001/drift-monitor
+  tag: dev
+  # Always: the local registry tag is reused across builds.
+  pullPolicy: Always
+
+service:
+  port: 8080
+
+# Namespace holding prediction_log and the retrain Jobs (RBAC target).
+jobsNamespace: data
+templateConfigMap: retrain-job-template
+
+database:
+  # scripts/deploy_monitor.sh mirrors the terraform-managed postgres-auth
+  # credentials into the release namespace under this secret.
+  secretName: drift-monitor-db
+  secretKey: database-url
+
+env:
+  MLFLOW_TRACKING_URI: http://mlflow.data.svc:5000
+  DRIFT_INTERVAL_SECONDS: "10"
+  DRIFT_WINDOW_SIZE: "1000"
+  DRIFT_MIN_SAMPLES: "100"
+  DRIFT_PSI_THRESHOLD: "0.25"
+  DRIFT_KS_D_THRESHOLD: "0.2"
+  DRIFT_KS_P: "0.01"
+  DRIFT_MIN_FEATURES: "2"
+  DRIFT_CONSECUTIVE: "2"
+  RETRAIN_COOLDOWN_SECONDS: "30"
+  LOG_LEVEL: INFO
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+serviceMonitor:
+  enabled: true

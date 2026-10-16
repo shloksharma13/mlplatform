@@ -1,0 +1,57 @@
+{
+  "title": "Service Health",
+  "uid": "mlp-service-health",
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1, "title": "RPS (model-api)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"model-api\"}[1m]))", "refId": "A"}]
+    },
+    {
+      "id": 2, "title": "Error rate (5xx ratio)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"model-api\",status=~\"5..\"}[2m])) / sum(rate(http_requests_total{job=\"model-api\"}[2m]))", "refId": "A"}]
+    },
+    {
+      "id": 3, "title": "Latency p50/p95/p99 (/predict)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le)(rate(http_request_duration_seconds_bucket{job=\"model-api\",path=\"/predict\"}[2m])))", "refId": "A", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum by (le)(rate(http_request_duration_seconds_bucket{job=\"model-api\",path=\"/predict\"}[2m])))", "refId": "B", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum by (le)(rate(http_request_duration_seconds_bucket{job=\"model-api\",path=\"/predict\"}[2m])))", "refId": "C", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "id": 4, "title": "Pods up", "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(up{job=\"model-api\"})", "refId": "A"}]
+    },
+    {
+      "id": 5, "title": "Restarts (10m)", "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "increase(kube_pod_container_status_restarts_total{namespace=\"serving\"}[10m])", "refId": "A"}]
+    },
+    {
+      "id": 6, "title": "CPU (cores)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"serving\",container=\"api\"}[2m]))", "refId": "A"}]
+    },
+    {
+      "id": 7, "title": "Memory (bytes)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(container_memory_working_set_bytes{namespace=\"serving\",container=\"api\"})", "refId": "A"}]
+    },
+    {
+      "id": 8, "title": "HPA desired/current", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"serving\"}", "refId": "A", "legendFormat": "min"},
+        {"expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"serving\"}", "refId": "B", "legendFormat": "desired"},
+        {"expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"serving\"}", "refId": "C", "legendFormat": "current"}
+      ]
+    }
+  ]
+}

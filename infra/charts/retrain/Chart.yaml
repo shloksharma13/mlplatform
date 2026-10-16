@@ -1,0 +1,6 @@
+apiVersion: v2
+name: retrain
+description: Retraining Job template and release RBAC for drift-triggered retraining (P8.3/P8.4).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

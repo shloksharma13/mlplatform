@@ -1,0 +1,57 @@
+# Pod template for drift-triggered retrain Jobs (P8.3). drift-monitor loads
+# this ConfigMap, sets the Job name/labels, and injects PARENT_CHAMPION plus
+# the DRIFT_REPORT payload before creating the Job in `jobsNamespace`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: retrain-job-template
+  namespace: {{ .Values.jobsNamespace }}
+data:
+  pod-spec.json: |
+    {
+      "restartPolicy": "OnFailure",
+      "serviceAccountName": "retrain",
+      "containers": [
+        {
+          "name": "retrain",
+          "image": "{{ .Values.image.repository }}:{{ .Values.image.tag }}",
+          "imagePullPolicy": "{{ .Values.image.pullPolicy }}",
+          "resources": {{ .Values.resources | toJson }},
+          "env": [
+            {"name": "MLFLOW_TRACKING_URI", "value": {{ .Values.env.MLFLOW_TRACKING_URI | quote }} },
+            {"name": "FEAST_S3_ENDPOINT_URL", "value": {{ .Values.env.FEAST_S3_ENDPOINT_URL | quote }} },
+            {"name": "TRIGGER", "value": "drift"},
+            {"name": "TRIGGER_MODE", "value": {{ .Values.env.TRIGGER_MODE | quote }} },
+            {"name": "PUBLIC_IP_NAME", "value": {{ .Values.env.PUBLIC_IP_NAME | quote }} },
+            {"name": "AZURE_RESOURCE_GROUP", "value": {{ .Values.env.AZURE_RESOURCE_GROUP | quote }} },
+            {"name": "AZURE_ALLOWED_CIDR", "value": {{ .Values.env.AZURE_ALLOWED_CIDR | quote }} },
+            {"name": "DEPLOY_TARGET", "value": {{ .Values.env.DEPLOY_TARGET | quote }} },
+            {"name": "MODEL_API_REPOSITORY", "value": {{ .Values.env.MODEL_API_REPOSITORY | quote }} },
+            {"name": "TRAINING_IMAGE", "value": {{ .Values.env.TRAINING_IMAGE | quote }} },
+            {"name": "IMAGE_TAG", "value": {{ .Values.env.IMAGE_TAG | quote }} },
+            {"name": "STAGING_URL", "value": {{ .Values.env.STAGING_URL | quote }} },
+            {"name": "PROD_URL", "value": {{ .Values.env.PROD_URL | quote }} },
+            {"name": "STAGING_SMOKE_URL", "value": {{ .Values.env.STAGING_SMOKE_URL | quote }} },
+            {"name": "PROD_SMOKE_URL", "value": {{ .Values.env.PROD_SMOKE_URL | quote }} },
+            {"name": "AWS_EC2_METADATA_DISABLED", "value": "true"},
+            {"name": "MPLCONFIGDIR", "value": "/tmp"},
+            {"name": "HOME", "value": "/tmp"},
+            {"name": "LOADCHECK_TOTAL", "value": "300"},
+            {"name": "LOADCHECK_RPS", "value": "30"},
+            {"name": "GATE_REPORT_OUT", "value": "/tmp/gate_report.json"},
+            {"name": "GATE_REPORT", "value": "/tmp/gate_report.json"},
+            {"name": "POSTGRES_USER", "valueFrom": {"secretKeyRef": {"name": "postgres-auth", "key": "username"}}},
+            {"name": "POSTGRES_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "postgres-auth", "key": "postgres-password"}}},
+            {"name": "POSTGRES_HOST", "value": "postgres.data.svc"},
+            {"name": "POSTGRES_PORT", "value": "5432"},
+            {"name": "FEAST_POSTGRES_DB", "value": "feast"},
+            {"name": "REDIS_HOST", "value": "redis.data.svc"},
+            {"name": "REDIS_PORT", "value": "6379"},
+            {"name": "AWS_ACCESS_KEY_ID", "valueFrom": {"secretKeyRef": {"name": "minio-auth", "key": "root-user"}}},
+            {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "minio-auth", "key": "root-password"}}}
+          ],
+          "command": ["/bin/bash", "-c"],
+          "args": ["set -Eeuo pipefail\n# Helm does not infer the pod's ServiceAccount credentials the way kubectl does.\ncat > /tmp/kubeconfig <<KUBECONFIG\napiVersion: v1\nkind: Config\nclusters:\n- name: in-cluster\n  cluster:\n    server: https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}\n    certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\nusers:\n- name: retrain\n  user:\n    token: $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\ncontexts:\n- name: in-cluster\n  context:\n    cluster: in-cluster\n    user: retrain\ncurrent-context: in-cluster\nKUBECONFIG\nexport KUBECONFIG=/tmp/kubeconfig\ncd /app\npython -m feature_repo.render_config\npython -m retrain.main\n"]
+        }
+      ]
+    }

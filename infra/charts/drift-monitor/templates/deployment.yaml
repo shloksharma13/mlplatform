@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: drift-monitor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.database.secretName }}, key: {{ .Values.database.secretKey }}}
+            - {name: MLFLOW_TRACKING_URI, value: {{ .Values.env.MLFLOW_TRACKING_URI | quote }}}
+            - {name: DRIFT_INTERVAL_SECONDS, value: {{ .Values.env.DRIFT_INTERVAL_SECONDS | quote }}}
+            - {name: DRIFT_WINDOW_SIZE, value: {{ .Values.env.DRIFT_WINDOW_SIZE | quote }}}
+            - {name: DRIFT_MIN_SAMPLES, value: {{ .Values.env.DRIFT_MIN_SAMPLES | quote }}}
+            - {name: DRIFT_PSI_THRESHOLD, value: {{ .Values.env.DRIFT_PSI_THRESHOLD | quote }}}
+            - {name: DRIFT_KS_D_THRESHOLD, value: {{ .Values.env.DRIFT_KS_D_THRESHOLD | quote }}}
+            - {name: DRIFT_KS_P, value: {{ .Values.env.DRIFT_KS_P | quote }}}
+            - {name: DRIFT_MIN_FEATURES, value: {{ .Values.env.DRIFT_MIN_FEATURES | quote }}}
+            - {name: DRIFT_CONSECUTIVE, value: {{ .Values.env.DRIFT_CONSECUTIVE | quote }}}
+            - {name: RETRAIN_COOLDOWN_SECONDS, value: {{ .Values.env.RETRAIN_COOLDOWN_SECONDS | quote }}}
+            - {name: LOG_LEVEL, value: {{ .Values.env.LOG_LEVEL | quote }}}
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http

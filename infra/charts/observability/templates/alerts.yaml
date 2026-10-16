@@ -1,0 +1,58 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mlp-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    # Required by the kube-prometheus-stack Prometheus ruleSelector.
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: mlp-serving
+      rules:
+        - alert: ModelApiDown
+          expr: sum(up{job="model-api"}) == 0
+          for: 1m
+          labels: {severity: critical}
+          annotations:
+            summary: "model-api has no UP targets"
+            runbook: "docs/runbook.md#modelapidown"
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="serving"}[10m]) > 2
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: "serving pods restarting"
+            runbook: "docs/runbook.md#podcrashlooping"
+        - alert: HighErrorRate
+          expr: sum(rate(http_requests_total{job="model-api",status=~"5.."}[2m])) / sum(rate(http_requests_total{job="model-api"}[2m])) > 0.05
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: "5xx ratio above 5%"
+            runbook: "docs/runbook.md#higherrorrate"
+        - alert: HighP95Latency
+          expr: histogram_quantile(0.95, sum by (le)(rate(http_request_duration_seconds_bucket{job="model-api",path="/predict"}[2m]))) > 0.3
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: "/predict p95 above 300ms"
+            runbook: "docs/runbook.md#highp95latency"
+    - name: mlp-mlops
+      rules:
+        - alert: ModelDriftDetected
+          expr: max(model_drift_detected) == 1
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: "drift monitor raised the drift flag (P8)"
+            runbook: "docs/runbook.md#modeldriftdetected"
+        - alert: RetrainFailed
+          # Local Jobs run in data; the AWS port may override this namespace.
+          expr: kube_job_status_failed{namespace="data",job_name=~"retrain-.*"} > 0
+          for: 1m
+          labels: {severity: critical}
+          annotations:
+            summary: "a retrain Job failed (P8)"
+            runbook: "docs/runbook.md#retrainfailed"

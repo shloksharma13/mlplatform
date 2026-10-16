@@ -1,0 +1,41 @@
+image:
+  repository: bitnamilegacy/minio
+  tag: 2025.7.23-debian-12-r3
+  digest: sha256:953d489a81cc4de7975f90e07202189c4325da39b0b92470b6a13c7ea99e36cd
+  pullPolicy: IfNotPresent
+
+clientImage:
+  repository: bitnamilegacy/minio-client
+  tag: 2025.7.21-debian-12-r2
+  digest: sha256:7a6b4b93998903f1673d2bd2140ac26b807c4224627b743778c5a8f70db561f1
+  pullPolicy: IfNotPresent
+
+auth:
+  # When false, credentials come from the existingSecret (managed by Terraform).
+  createSecret: true
+  existingSecret: ""
+  secretKeys:
+    accessKey: root-user
+    secretKey: root-password
+  rootUser: minioadmin
+  rootPassword: changeme-local-only
+
+storage:
+  size: 5Gi
+
+buckets:
+  - mlflow-artifacts
+  - feast-offline
+  - ml-data
+
+service:
+  apiNodePort: 30900
+  consoleNodePort: 30901
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: remediator
+description: Alertmanager webhook remediator for the ML platform (P5.6).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

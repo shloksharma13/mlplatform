@@ -1,0 +1,22 @@
+.git
+.github
+.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.coverage
+coverage.xml
+.env
+.env.*
+.terraform
+*.tfstate*
+docs
+tests
+data
+artifacts
+mlruns
+infra/envs
+infra/modules
+# Rendered Feast config contains the Postgres password: never bake it into an image.
+core/feature_repo/feature_store.yaml
+infra/vendor

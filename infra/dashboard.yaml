@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dashboard
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dashboard-operations
+rules:
+  - apiGroups: ["", "apps", "batch", "autoscaling", "policy", "monitoring.coreos.com", "networking.k8s.io"]
+    resources: [nodes, namespaces, pods, pods/log, pods/exec, services, secrets, configmaps, deployments, replicasets, jobs, horizontalpodautoscalers, poddisruptionbudgets, servicemonitors, networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dashboard-operations
+subjects:
+  - kind: ServiceAccount
+    name: dashboard
+    namespace: observability
+roleRef:
+  kind: ClusterRole
+  name: dashboard-operations
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: dashboard}
+  template:
+    metadata:
+      labels: {app: dashboard}
+    spec:
+      serviceAccountName: dashboard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: dashboard
+          image: __DASHBOARD_IMAGE__
+          ports:
+            - {name: https, containerPort: 8050}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: 1000m, memory: 2Gi}
+          env:
+            - {name: DEPLOY_TARGET, value: azure}
+            - {name: PYTHONPATH, value: /app}
+            - {name: CLUSTER_NAME, value: __CLUSTER_NAME__}
+            - {name: PUBLIC_IP_NAME, value: __PUBLIC_IP_NAME__}
+            - {name: AZURE_RESOURCE_GROUP, value: __RESOURCE_GROUP__}
+            - {name: AZURE_ALLOWED_CIDR, value: __ALLOWED_CIDR__}
+            - {name: IMAGE_TAG, value: __IMAGE_TAG__}
+            - {name: TRAINING_IMAGE, value: __TRAINING_IMAGE__}
+            - {name: MODEL_API_REPOSITORY, value: __MODEL_API_REPOSITORY__}
+            - {name: MODEL_API_URL, value: "http://model-api.serving.svc:8080"}
+            - {name: SMOKE_BASE_URL, value: "http://model-api.serving.svc:8080"}
+            - {name: PROMETHEUS_URL, value: "http://kube-prometheus-stack-prometheus.observability.svc:9090"}
+            - {name: MLFLOW_TRACKING_URI, value: "http://mlflow.data.svc:5000"}
+            - {name: MINIO_ENDPOINT, value: "http://minio.data.svc:9000"}
+            - {name: MLFLOW_S3_ENDPOINT_URL, value: "http://minio.data.svc:9000"}
+            - {name: AWS_DEFAULT_REGION, value: us-east-1}
+            - {name: PUBLIC_HOST, value: __PUBLIC_HOST__}
+            - name: DASHBOARD_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: grafana-admin, key: admin-password}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: dashboard-data, key: access-key}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: dashboard-data, key: secret-key}
+          volumeMounts:
+            - {name: tls, mountPath: /app/tls, readOnly: true}
+            - {name: data, mountPath: /app/data}
+            - {name: artifacts, mountPath: /app/artifacts}
+          startupProbe:
+            httpGet: {path: /healthz, port: https, scheme: HTTPS}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /healthz, port: https, scheme: HTTPS}
+          livenessProbe:
+            httpGet: {path: /healthz, port: https, scheme: HTTPS}
+            periodSeconds: 20
+      volumes:
+        - name: tls
+          secret: {secretName: dashboard-tls}
+        - {name: data, emptyDir: {}}
+        - {name: artifacts, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: observability
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: __RESOURCE_GROUP__
+    service.beta.kubernetes.io/azure-pip-name: __PUBLIC_IP_NAME__
+spec:
+  type: LoadBalancer
+  loadBalancerSourceRanges: [__ALLOWED_CIDR__, __RUNNER_CIDR__]
+  selector: {app: dashboard}
+  ports:
+    - {name: https, port: 443, targetPort: https}

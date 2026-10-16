@@ -1,0 +1,19 @@
+# Rendered from module variables: 3 nodes, pinned image, registry mirror,
+# and the host port mappings from SPEC 5.3.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."${registry_host}"]
+      endpoint = ["http://${registry_container_host}"]
+nodes:
+  - role: control-plane
+    image: ${node_image}
+    extraPortMappings:
+%{ for host_port in sort(keys(port_mappings)) ~}
+      - {containerPort: ${port_mappings[host_port]}, hostPort: ${host_port}}
+%{ endfor ~}
+  - role: worker
+    image: ${node_image}
+  - role: worker
+    image: ${node_image}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: minio
+description: S3-compatible object storage for MLflow, Feast offline, and ml-data.
+type: application
+version: 0.1.0
+appVersion: 2025.7.23

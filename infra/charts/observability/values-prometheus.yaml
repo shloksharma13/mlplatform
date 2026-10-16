@@ -1,0 +1,90 @@
+# P5.1 — kube-prometheus-stack values (chart 91.8.2).
+# Grafana :3000 host (NodePort 30030), Prometheus :9090 (30090), Alertmanager :9093 (30093).
+# Retention 2d, reduced resources for the 8CPU/16GB laptop.
+# ServiceMonitors from ANY namespace are discovered
+# (serviceMonitorSelectorNilUsesHelmValues=false) so model-api is scraped.
+# Grafana sidecar loads dashboards/datasources from ConfigMaps
+# (dashboards label grafana_dashboard=1; datasources label grafana_datasource=1).
+# Admin password comes from the terraform-managed `grafana-admin` Secret (never in git).
+# Alertmanager routes critical/warning to the remediator webhook (P5.6).
+
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: NodePort
+    nodePort: 30030
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc:3100
+      editable: false
+
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    retention: 2d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: 1000m, memory: 2Gi}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests: {storage: 2Gi}
+
+alertmanager:
+  service:
+    type: NodePort
+    nodePort: 30093
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests: {storage: 1Gi}
+  config:
+    receivers:
+      - name: "null"
+      - name: "remediator"
+        webhook_configs:
+          - url: "http://remediator.observability.svc:8080/alert"
+            send_resolved: true
+    route:
+      routes:
+        - receiver: "null"
+          matchers:
+            - alertname = "Watchdog"
+        - receiver: "remediator"
+          matchers:
+            - severity =~ "critical|warning"
+
+prometheusOperator:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+kubeStateMetrics:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 256Mi}
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 50m, memory: 32Mi}
+    limits: {cpu: 200m, memory: 128Mi}

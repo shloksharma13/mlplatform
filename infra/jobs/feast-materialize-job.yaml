@@ -1,0 +1,46 @@
+# Materialize the offline features into the Redis online store. Run via
+# `make feast-materialize`, which deletes any previous Job first so the manifest
+# stays re-runnable.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: feast-materialize
+  namespace: data
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: feast-materialize
+          image: localhost:5001/training:dev
+          # Always: the local registry tag is reused across builds.
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          imagePullPolicy: Always
+          env:
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: postgres-auth, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-auth, key: postgres-password}}
+            - {name: POSTGRES_HOST, value: postgres.data.svc}
+            - {name: POSTGRES_PORT, value: "5432"}
+            - {name: FEAST_POSTGRES_DB, value: feast}
+            - {name: REDIS_HOST, value: redis.data.svc}
+            - {name: REDIS_PORT, value: "6379"}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: minio-auth, key: root-user}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: minio-auth, key: root-password}}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+            - {name: FEAST_S3_ENDPOINT_URL, value: http://minio.data.svc:9000}
+            - {name: MPLCONFIGDIR, value: /tmp}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              cd /app
+              python -m feature_repo.render_config
+              feast -c feature_repo materialize-incremental "$(date -u +%FT%T)"

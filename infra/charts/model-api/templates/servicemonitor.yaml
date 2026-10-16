@@ -1,0 +1,20 @@
+{{- $fullName := include "model-api.fullname" . -}}
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "model-api.labels" . | nindent 4 }}
+spec:
+  # Keep the Prometheus job name stable ("model-api") so alerts and
+  # dashboards can use job="model-api" regardless of release/namespace.
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      {{- include "model-api.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+{{- end }}

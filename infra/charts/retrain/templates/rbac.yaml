@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: retrain
+  namespace: {{ .Values.jobsNamespace }}
+---
+# The gate Job runs in the jobs namespace via run_gate.sh from the retrain pod.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: retrain-jobs
+  namespace: {{ .Values.jobsNamespace }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+  # deploy.sh mirrors the terraform-managed source secrets (minio-auth,
+  # postgres-auth) into the release namespaces.
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: retrain-jobs
+  namespace: {{ .Values.jobsNamespace }}
+subjects:
+  - kind: ServiceAccount
+    name: retrain
+    namespace: {{ .Values.jobsNamespace }}
+roleRef:
+  kind: Role
+  name: retrain-jobs
+  apiGroup: rbac.authorization.k8s.io
+---
+# Release power: the retrain Job runs the same helm/kubectl release scripts
+# the workflow uses, scoped to the serving/staging namespaces only
+# (demo-scoped by design; recorded in docs/DECISIONS.md).
+{{- range .Values.releaseNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: retrain-release
+  namespace: {{ . }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "namespaces"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  # Helm stores release state as Secrets and deletes superseded revisions on
+  # every upgrade (observed P8 drill: staging deploy fails without it).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: retrain-release
+  namespace: {{ . }}
+subjects:
+  - kind: ServiceAccount
+    name: retrain
+    namespace: {{ $.Values.jobsNamespace }}
+roleRef:
+  kind: Role
+  name: retrain-release
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+---
+# deploy.sh ensures namespaces exist (get/create only, cluster-scoped).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: retrain-namespaces
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: retrain-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: retrain
+    namespace: {{ .Values.jobsNamespace }}
+roleRef:
+  kind: ClusterRole
+  name: retrain-namespaces
+  apiGroup: rbac.authorization.k8s.io

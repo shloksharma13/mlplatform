@@ -1,0 +1,29 @@
+{
+  "title": "Logs",
+  "uid": "mlp-logs",
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1, "title": "Serving logs (parsed JSON)", "type": "logs",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{namespace=\"serving\"} | json", "refId": "A"}]
+    },
+    {
+      "id": 2, "title": "By request_id", "type": "logs",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{namespace=\"serving\"} | json | request_id != \"\"", "refId": "A"}]
+    },
+    {
+      "id": 3, "title": "Errors only", "type": "logs",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{namespace=\"serving\"} | json | level = \"ERROR\"", "refId": "A"}]
+    },
+    {
+      "id": 4, "title": "Error rate from logs", "type": "timeseries",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "sum by (level)(count_over_time({namespace=\"serving\"} | json | level = \"ERROR\" [1m]))", "refId": "A"}]
+    }
+  ]
+}

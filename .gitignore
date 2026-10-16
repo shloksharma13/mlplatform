@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+
+# Generated ML data and artifacts
+/data/
+/artifacts/
+/mlruns/
+
+# Rendered Feast config (contains the Postgres password; see feature_repo/)
+core/feature_repo/feature_store.yaml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform/
+.tofu*
+crash.log
+
+# Local cluster and IDE state
+kubeconfig*
+.kind-config.*.yaml
+.idea/
+.vscode/
+.DS_Store
+
+# Generated evidence
+gate_report.json
+
+# Terraform plans and backend configuration can contain secrets
+*.tfplan
+backend.hcl

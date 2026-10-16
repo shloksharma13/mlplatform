@@ -1,0 +1,106 @@
+replicaCount: 2
+
+image:
+  repository: localhost:5001/model-api
+  tag: dev
+  # Always: the local registry tag is reused across builds, so nodes would
+  # otherwise serve a stale cached layer (bit us on the P6.7 mlflow cutover).
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+
+env:
+  MODEL_NAME: loan-default
+  # MODEL_VERSION is intentionally absent: the pinned version comes only from
+  # `model.version` below (single source of truth; immutable deploys).
+  MODEL_SOURCE: mlflow
+  FEATURE_SOURCE: feast
+  FEATURE_SERVICE: loan_default_v1
+  MLFLOW_TRACKING_URI: http://mlflow.data.svc:5000
+  REDIS_URL: redis://redis.data.svc:6379/0
+  LOG_LEVEL: INFO
+
+database:
+  # Prediction rows go to Postgres (P6.7). deploy.sh mirrors the terraform-managed
+  # postgres-auth credentials into the release namespace as this secret, with
+  # the full SQLAlchemy URL under `secretKey`.
+  enabled: true
+  secretName: postgres-app
+  secretKey: database-url
+
+modelFiles:
+  # Init container pulls runtime artifacts from MinIO (P4.4). Disabled from P6.7:
+  # models come from MLflow and features from Feast, so the image carries
+  # neither model nor data. Kept for rollback use.
+  enabled: false
+  bucket: ml-data
+  endpoint: http://minio.data.svc:9000
+  secretName: minio-model
+  secretKeys:
+    accessKey: root-user
+    secretKey: root-password
+  clientImage:
+    repository: bitnamilegacy/minio-client
+    tag: 2025.7.21-debian-12-r2
+    digest: sha256:7a6b4b93998903f1673d2bd2140ac26b807c4224627b743778c5a8f70db561f1
+    pullPolicy: IfNotPresent
+
+chaos:
+  enabled: true
+
+model:
+  version: "1"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 60
+  scaleDownStabilizationSeconds: 60
+
+serviceMonitor:
+  enabled: true
+
+probes:
+  startup:
+    path: /healthz
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+  readiness:
+    path: /readyz
+
+networkPolicy:
+  enabled: true
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+  # Extra labels (e.g. azure.workload.identity/use on AKS).
+  labels: {}

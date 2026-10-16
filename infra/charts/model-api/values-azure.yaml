@@ -1,0 +1,15 @@
+# AKS uses the same in-cluster data services as the proven local stack.
+# The deployment script supplies immutable ACR images and model versions.
+service:
+  type: LoadBalancer
+  port: 8080
+
+# Feast/MLflow client imports and model loading need more headroom than the
+# small local chart defaults during process startup.
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

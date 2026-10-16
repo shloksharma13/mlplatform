@@ -1,0 +1,17 @@
+# Example variable definitions for the Azure AKS environment.
+# Copy to terraform.tfvars (gitignored) and adjust before planning.
+# .edu / Azure for Students accounts: one subscription per person, verified
+# through your school email. Find YOUR subscription id with:
+#   az login && az account show --query id -o tsv
+# and put it below (do not reuse the placeholder id).
+subscription_id    = "00000000-0000-0000-0000-000000000000"
+project            = "mlp"
+environment        = "test"
+location           = "indiasouthcentral"
+vnet_cidr          = "10.0.0.0/16"
+kubernetes_version = "1.36.4"
+node_count         = 1
+vm_size            = "Standard_D4as_v4"
+budget_limit_usd   = 50
+budget_email       = "you@university.edu"
+budget_start_date  = "2026-10-01T00:00:00Z"

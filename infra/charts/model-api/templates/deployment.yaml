@@ -1,0 +1,140 @@
+{{- $fullName := include "model-api.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "model-api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: {{ .Values.strategy.type }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
+  selector:
+    matchLabels:
+      {{- include "model-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "model-api.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if and .Values.serviceAccount (or .Values.serviceAccount.create .Values.serviceAccount.name) }}
+      serviceAccountName: {{ default (include "model-api.fullname" .) .Values.serviceAccount.name }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - {{ include "model-api.name" . }}
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "model-api.selectorLabels" . | nindent 14 }}
+      {{- if .Values.modelFiles.enabled }}
+      initContainers:
+        - name: fetch-model
+          image: "{{ .Values.modelFiles.clientImage.repository }}:{{ .Values.modelFiles.clientImage.tag }}@{{ .Values.modelFiles.clientImage.digest }}"
+          imagePullPolicy: {{ .Values.modelFiles.clientImage.pullPolicy }}
+          env:
+            - name: MINIO_USER
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.modelFiles.secretName }}, key: {{ .Values.modelFiles.secretKeys.accessKey }}}
+            - name: MINIO_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.modelFiles.secretName }}, key: {{ .Values.modelFiles.secretKeys.secretKey }}}
+            - {name: HOME, value: /home/mc}
+          volumeMounts:
+            - {name: artifacts, mountPath: /app/artifacts}
+            - {name: data, mountPath: /app/data}
+            - {name: mc-home, mountPath: /home/mc}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              mc alias set minio "{{ .Values.modelFiles.endpoint }}" "$MINIO_USER" "$MINIO_PASSWORD" >/dev/null
+              mc mirror --overwrite "minio/{{ .Values.modelFiles.bucket }}/artifacts" /app/artifacts
+              mc cp "minio/{{ .Values.modelFiles.bucket }}/features_latest.parquet" /app/data/features_latest.parquet
+              ls -la /app/artifacts /app/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: [ALL]
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - {name: MODEL_NAME, value: {{ .Values.env.MODEL_NAME | quote }}}
+            - {name: MODEL_VERSION, value: {{ .Values.model.version | quote }}}
+            - {name: MODEL_SOURCE, value: {{ .Values.env.MODEL_SOURCE | quote }}}
+            - {name: FEATURE_SOURCE, value: {{ .Values.env.FEATURE_SOURCE | quote }}}
+            - {name: FEATURE_SERVICE, value: {{ .Values.env.FEATURE_SERVICE | quote }}}
+            - {name: MLFLOW_TRACKING_URI, value: {{ .Values.env.MLFLOW_TRACKING_URI | quote }}}
+            - {name: REDIS_URL, value: {{ .Values.env.REDIS_URL | quote }}}
+            - {name: LOG_LEVEL, value: {{ .Values.env.LOG_LEVEL | quote }}}
+            - {name: ENABLE_CHAOS, value: {{ .Values.chaos.enabled | quote }}}
+            {{- if .Values.database.enabled }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.database.secretName }}, key: {{ .Values.database.secretKey }}}
+            {{- end }}
+          startupProbe:
+            httpGet: {path: {{ .Values.probes.startup.path }}, port: http}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet: {path: {{ .Values.probes.liveness.path }}, port: http}
+          readinessProbe:
+            httpGet: {path: {{ .Values.probes.readiness.path }}, port: http}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.modelFiles.enabled }}
+            - {name: artifacts, mountPath: /app/artifacts}
+            - {name: data, mountPath: /app/data}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.modelFiles.enabled }}
+        - name: artifacts
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: mc-home
+          emptyDir: {}
+        {{- end }}

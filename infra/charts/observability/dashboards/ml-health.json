@@ -1,0 +1,74 @@
+{
+  "title": "ML Health",
+  "uid": "mlp-ml-health",
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 2,
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "enable": true,
+        "expr": "changes(retrain_triggered_total{job=\"drift-monitor\"}[1m]) > 0",
+        "iconColor": "#F2CC0C",
+        "name": "Retrain events",
+        "type": "tags"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "title": "Model in service", "type": "table",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "model_info{job=\"model-api\"}", "refId": "A", "format": "table"}]
+    },
+    {
+      "id": 2, "title": "Predictions by label", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (label)(rate(predictions_total{job=\"model-api\"}[5m]))", "refId": "A"}]
+    },
+    {
+      "id": 3, "title": "PSI per feature (threshold 0.25)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "model_feature_psi{job=\"drift-monitor\"}", "refId": "A", "legendFormat": "{{feature}}"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"value": 0, "color": "green"}, {"value": 0.25, "color": "red"}]}}}
+    },
+    {
+      "id": 4, "title": "KS D per feature (threshold 0.2)", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "model_feature_ks_d{job=\"drift-monitor\"}", "refId": "A", "legendFormat": "{{feature}}"}]
+    },
+    {
+      "id": 5, "title": "Drift flag", "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(model_drift_detected{job=\"drift-monitor\"})", "refId": "A"}]
+    },
+    {
+      "id": 6, "title": "Window samples", "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(model_drift_window_samples{job=\"drift-monitor\"})", "refId": "A"}]
+    },
+    {
+      "id": 7, "title": "Retrains triggered", "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(retrain_triggered_total{job=\"drift-monitor\"})", "refId": "A"}]
+    },
+    {
+      "id": 8, "title": "Champion vs candidate AUC", "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "model_champion_auc{job=\"drift-monitor\"}", "refId": "A", "legendFormat": "champion"},
+        {"expr": "model_candidate_auc{job=\"drift-monitor\"}", "refId": "B", "legendFormat": "candidate"}
+      ]
+    }
+  ]
+}
